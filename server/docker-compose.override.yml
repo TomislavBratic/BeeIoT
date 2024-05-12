@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+
+  # Apiary Django app
+  apiary:
+    volumes:
+        # Mount the code in during development
+        - ./backend/apiary:/app
+    ports:
+      # Expose Django app in development only
+      - "8000:8000"
+
+  # InfluxDB for sensor data storage
+  influxdb:
+    ports:
+      - 8086:8086
+
+  # Grafana for public data dashboards
+  grafana:
+    ports:
+      - 3080:3000

@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+
+  # Nginx with Let's Encrypt as the front facing and SSL terminating reverse proxy
+  nginx:
+    image: lscr.io/linuxserver/swag
+    cap_add:
+      - NET_ADMIN
+    env_file: .env
+    volumes:
+      - nginx_config:/config
+      - ./nginx/nginx.conf:/config/nginx/nginx.conf
+      - ./nginx/default:/config/nginx/site-confs/default.conf
+      - static:/static
+      - media:/media
+    depends_on:
+      - nginx_rtmp
+      - apiary
+    ports:
+      - "443:443"
+      - "80:80"
+      - "1935:1935"
+    restart: unless-stopped
+    networks:
+      - server_network
+volumes:
+  nginx_config:

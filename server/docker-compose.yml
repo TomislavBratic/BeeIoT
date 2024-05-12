@@ -1,0 +1,72 @@
+version: "3.8"
+
+services:
+  # RTMP stream receiving nginx
+  nginx_rtmp:
+    build:
+      context: ./nginx_rtmp
+      dockerfile: Dockerfile
+    env_file: .env
+    volumes:
+      - type: tmpfs
+        target: /hlstmp
+    networks:
+      - server_network
+
+  # Apiary Django app
+  apiary:
+    build:
+      context: ./backend/apiary
+      dockerfile: Dockerfile
+    env_file: .env
+    volumes:
+      - static:/static
+      - media:/media
+    depends_on:
+      - postgres
+    restart: always
+    networks:
+      - server_network
+      - db_network
+
+  # Postgres backing the Django app
+  postgres:
+    image: postgres:latest
+    volumes:
+      - postgres:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_PASSWORD
+    restart: always
+    networks:
+      - db_network
+
+  # InfluxDB for sensor data storage
+  influxdb:
+    image: influxdb:2.0.7
+    command: --reporting-disabled
+    volumes:
+      - influxdb:/var/lib/influxdb2
+    restart: always
+    networks:
+      - server_network
+
+  # Grafana for public data dashboards
+  grafana:
+    image: grafana/grafana:8.0.6
+    volumes:
+      - grafana:/var/lib/grafana
+    restart: always
+    env_file: .env
+    networks:
+      - server_network
+
+volumes:
+  postgres:
+  static:
+  media:
+  influxdb:
+  grafana:
+
+networks:
+  server_network:
+  db_network:
