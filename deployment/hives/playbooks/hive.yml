@@ -1,0 +1,9 @@
+---
+- name: Configure Raspberry Pis for hive usage
+  import_playbook: pi_configuration.yml
+- name: Set up remote.it
+  import_playbook: remoteit_setup.yml
+- name: Set up Docker on Raspberry Pis
+  import_playbook: docker_setup.yml
+- name: Run the hive software
+  import_playbook: run_hive_software.yml

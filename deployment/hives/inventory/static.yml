@@ -1,0 +1,59 @@
+hives:
+  hosts:
+    desiredhostname:
+      # Hostname to set this Pi to
+      # *** Must be unique per-hive: lowercase, no spaces or special characters
+      pi_hostname: desiredhostname
+      # Password for the pi user
+      pi_password: tbratic12
+      # remote.it setup
+      remoteit_enabled: false
+      # WiFi networks to connect this hive to
+      hive_wifi_networks:
+        - ssid: 93BB31
+          psk: kitvh3zg85
+          id_str: example_network
+      # Hive environment variables for this hive
+      # Used to set the environment for Dockerised hive services
+      # Details of how to set values in bee_iot/hive/.env.example
+      # *** Suggested: keep the hive_name and pi_hostname the same
+      hive_name: hivename
+      hive_streaming_enabled: "true"
+      hive_environment_enabled: "true"
+      hive_connectivity_checking_enabled: "true"
+      # `hive_alsa_device` is auto-detected if not set
+      # Must have a I2S mic plugged in to the Pi
+      hive_rtmp_url: rtmps://bratic123.com:1935/publish
+      # *** Suggested: keep the stream key and hive_name the same
+      hive_stream_key: hivename
+      hive_stream_secret_key: secretkey
+      hive_influxdb_api_token: fZVK0U8LpPxN2uDIjYllP5DVFhZg9aRKcoLzBUQAAOoiUqYkxucGGhbN82aGiKElmilUkIF2yW3acGODnE0boA==
+      hive_influxdb_org: bratic
+      hive_influxdb_bucket: brat
+      hive_influxdb_url: https://influxdb.bratic123.com
+  vars:
+    ansible_host: 192.168.0.18
+    ansible_user: pi
+    
+    # When setting up Pis, the default is no public-key auth and the default
+    # password of `raspberry`
+    #
+    # Ansible will prefer public key auth (set up on first run)
+    # after using password auth the first time. The Pi password is then
+    # immediately changed to the value in `pi_password` in the first run
+    #
+    # `sshpass` must be installed for this to work
+    ansible_ssh_pass: raspberry
+    ansible_python_interpreter: python3
+    hive_led_pin: "16"
+    wpa_wifi_country: HR
+    group_wifi_networks:
+      - ssid: 93BB31
+        psk: kitvh3zg85
+        id_str: example_network
+      - ssid: example_ssid_2
+        psk: example_passcode_2
+        id_str: example_network_2
+    remoteid_access_key: example
+    remoteid_access_key_secret: example
+    remoteid_api_key: example

@@ -1,0 +1,36 @@
+version: "3.7"
+
+services:
+
+  environment:
+    build: ./services/environment
+    restart: always
+    env_file: .env
+    # Required for GPIO access
+    privileged: true
+
+  connectivity:
+    build: ./services/connectivity
+    restart: always
+    env_file: .env
+    # Required for GPIO access
+    privileged: true
+
+  av_streaming_picam:
+    build: ./services/av_streaming/picam
+    privileged: true
+    restart: always
+    env_file: .env
+    tmpfs:
+      - /picam_tmpfs
+    networks:
+      - streaming_network
+    healthcheck:
+      # Check if ffmpeg is running: if not, kill the container
+      test: "ps aux | grep ffmpeg | grep --invert-match grep || killall picam"
+      interval: 15s
+      timeout: 5s
+      retries: 1
+
+networks:
+  streaming_network:

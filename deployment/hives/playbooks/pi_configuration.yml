@@ -1,0 +1,284 @@
+---
+- name: Pi configuration
+  hosts: hives
+  remote_user: pi
+
+  tasks:
+
+  # Set up public key auth
+  - name: Set up public key auth
+    ansible.posix.authorized_key:
+      user: pi
+      state: present
+      key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/id_rsa.pub') }}"
+
+  # Set the `pi` user password
+  # Creates password salts that are idempotent between runs
+  # https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html#encrypting-and-checksumming-strings-and-passwords
+  - name: Set pi user password
+    become: true
+    ansible.builtin.user:
+      name: pi
+      password: "{{ pi_password | password_hash('sha512', 65534 | random(seed=pi_hostname) | string) }}"
+      update_password: always
+
+  # Prevent remote.it connectd from being upgraded
+  # https://support.remote.it/hc/en-us/articles/360051668711
+  - name: Prevent connectd from being upgraded
+    become: true
+    dpkg_selections:
+      name: connectd
+      selection: hold
+
+  - name: Prevent remoteit from being upgraded
+    become: true
+    dpkg_selections:
+      name: remoteit
+      selection: hold
+
+  # Apt update / upgrade
+  - name: Package updates
+    become: true
+    register: package_updates
+    ansible.builtin.apt:
+      update_cache: true
+      upgrade: safe
+
+  # Reboot after apt update / upgrade
+  # Required for i2s mic software setup
+  - name: Reboot after package updates
+    become: true
+    when: package_updates.changed
+    reboot:
+      reboot_timeout: 600
+
+  # Ensure required packages are installed
+  - name: Package installs
+    become: true
+    ansible.builtin.apt:
+      name:
+        - curl
+        - git
+        - vim
+        - libffi-dev
+        - python
+        - python-pip
+        - python3
+        - python3-pip
+      state: present
+
+  - name: Install pexpect
+    become: true
+    ansible.builtin.pip:
+      name: pexpect
+      state: present
+      executable: pip3
+
+  - name: Install Adafruit Python Shell
+    become: true
+    ansible.builtin.pip:
+      name: adafruit-python-shell
+      state: present
+      executable: pip3
+
+  - name: Install Adafruit Blinka
+    become: true
+    ansible.builtin.pip:
+      name: adafruit-blinka
+      state: forcereinstall
+      executable: pip3
+
+  - name: Install Adafruit Platform Detect
+    become: true
+    ansible.builtin.pip:
+      name: Adafruit-PlatformDetect
+      state: forcereinstall
+      executable: pip3
+
+  # buster-backports libseccomp2 for Alpine Docker images
+  # https://blog.samcater.com/fix-workaround-rpi4-docker-libseccomp2-docker-20/
+  - name: Add an apt key (1) for buster-backports, needed for libseccomp2 for Alpine Docker images
+    become: true
+    ansible.builtin.apt_key:
+      keyserver: keyserver.ubuntu.com
+      id: 04EE7237B7D453EC
+      state: present
+
+  - name: Add an apt key (2) for buster-backports, needed for libseccomp2 for Alpine Docker images
+    become: true
+    ansible.builtin.apt_key:
+      keyserver: keyserver.ubuntu.com
+      id: 648ACFD622F3D138
+      state: present
+
+  - name: Add specified repository into sources list
+    become: true
+    ansible.builtin.apt_repository:
+      # repo: deb http://httpredir.debian.org/debian buster-backports main contrib non-free
+      repo: deb http://deb.debian.org/debian buster-backports main
+      state: present
+      update_cache: true
+
+  - name: libseccomp2 for Alpine Docker images
+    become: true
+    ansible.builtin.apt:
+      name: libseccomp2
+      update_cache: true
+      default_release: buster-backports
+      state: latest
+      only_upgrade: true
+
+  # WiFi country
+  - name: Get WiFi country
+    changed_when: false
+    become: true
+    ansible.builtin.command: raspi-config nonint get_wifi_country
+    register: existing_wifi_country
+  - name: Set WiFi country
+    when: existing_wifi_country.stdout != wpa_wifi_country
+    become: true
+    ansible.builtin.command: raspi-config nonint do_wifi_country {{ wpa_wifi_country | quote }}
+    notify: Reboot
+
+  # Ensure wpa_supplicant.conf doesn't get updated elsewhere
+  - name: Ensure wpa_supplicant.conf doesn't get updated elsewhere
+    become: true
+    ansible.builtin.lineinfile:
+      path: /etc/wpa_supplicant/wpa_supplicant.conf
+      regexp: '^update_config='
+      line: update_config=0
+    notify: Reboot
+
+  # Set up the WPA supplicant file for WiFi connections
+  - name: Set up the WPA supplicant file for WiFi connections
+    become: true
+    with_items: "{{ group_wifi_networks + hive_wifi_networks }}"
+    ansible.builtin.blockinfile:
+      path: /etc/wpa_supplicant/wpa_supplicant.conf
+      block: |
+        network={
+          ssid="{{ item.ssid }}"
+          psk="{{ item.psk }}"
+          id_str="{{ item.id_str }}"
+        }
+      marker: "# {mark} ANSIBLE MANAGED BLOCK {{ item.id_str }}"
+    notify: Reboot
+
+  # Camera setup
+  - name: Get camera enabled / disabled status
+    changed_when: false
+    become: true
+    ansible.builtin.command: raspi-config nonint get_camera
+    register: camera_enabled_status
+  - name: Enable the camera via raspi-config
+    when: camera_enabled_status.stdout == "1"
+    become: true
+    ansible.builtin.command: raspi-config nonint do_camera 0
+    notify:
+      - Reboot
+
+  # I2C setup
+  - name: Get I2C enabled / disabled status
+    changed_when: false
+    become: true
+    command: raspi-config nonint get_i2c
+    register: i2c_enabled_status
+  - name: Enable I2C via raspi-config
+    when: i2c_enabled_status.stdout == "1"
+    become: true
+    ansible.builtin.command: raspi-config nonint do_i2c 0
+    notify:
+      - Reboot
+
+  - name: Get the I2S mic installer
+    register: i2s_mic_installer_download
+    ansible.builtin.get_url:
+      url: https://raw.githubusercontent.com/adafruit/Raspberry-Pi-Installer-Scripts/master/i2smic.py
+      dest: /home/pi/i2smic.py
+
+  - name: Run the I2S mic installer
+    when: i2s_mic_installer_download.changed or package_updates.changed
+    become: true
+    register: i2s_mic_installer
+    ansible.builtin.expect:
+      command: python3 /home/pi/i2smic.py
+      timeout: 1200
+      responses:
+        "Auto load module at boot": "y"
+        "REBOOT NOW": "n"
+
+  # Reboot after apt update / upgrade
+  # Required for i2s mic software setup
+  - name: Reboot after I2S mic setup
+    become: true
+    when: i2s_mic_installer.changed
+    reboot:
+      reboot_timeout: 600
+
+  # Hostname
+  - name: Get hostname
+    changed_when: false
+    become: true
+    ansible.builtin.command: raspi-config nonint get_hostname
+    register: existing_hostname
+  - name: Set hostname
+    when: existing_hostname.stdout != pi_hostname
+    become: true
+    ansible.builtin.command: raspi-config nonint do_hostname {{ pi_hostname | quote }}
+    notify:
+      - Update inventory with new hostname
+      - Alert to required re-run
+      - Hostname change reboot
+
+  handlers:
+    # If the hostname was changed, update our inventory file
+    # Useful for setting up a new pi with the `raspberrypi`
+    # default hostname, and then automatically updating it to
+    # the newly set hostname
+    #
+    # Therefore, initial setup of Pis should be done one at a time,
+    # unless the hostname has already been updated to a new unique value
+    - name: Update inventory with new hostname
+      delegate_to: localhost
+      ansible.builtin.lineinfile:
+        path: "{{ inventory_file }}"
+        regexp: '^(\s*){{ inventory_hostname }}:$'
+        line: '\1{{ pi_hostname }}:'
+        backrefs: true
+
+    - name: Alert to required re-run
+      ansible.builtin.debug:
+        verbosity: 0
+        msg:
+          - ""
+          - ""
+          - "!!! ATTENTION !!!"
+          - ""
+          - "*** Hostname was changed! ***"
+          - ""
+          - "{{ inventory_hostname }} -> {{ pi_hostname }}"
+          - ""
+          - "The Ansible inventory file has been updated"
+          - ""
+          - "The next handler will reboot the Pi: it will fail"
+          - ""
+          - "Then re-run the playbook to continue"
+          - ""
+          - "It may take a few minutes for the Pi to come online"
+          - "with the new hostname"
+          - ""
+          - "Keep retrying the playbook until the Pi is back"
+          - ""
+          - ""
+
+    - name: Hostname change reboot
+      become: true
+      ansible.builtin.reboot:
+        connect_timeout: 300
+        reboot_timeout: 5
+
+    - name: Reboot
+      become: true
+      ansible.builtin.reboot:
+        connect_timeout: 300
+        reboot_timeout: 600

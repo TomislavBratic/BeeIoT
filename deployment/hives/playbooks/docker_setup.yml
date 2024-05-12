@@ -1,0 +1,44 @@
+---
+- name: Docker setup
+  hosts: hives
+  remote_user: pi
+
+  tasks:
+
+  # Docker setup
+  - name: Check if Docker is installed
+    ansible.builtin.stat:
+      path: /usr/bin/docker
+    register: docker_stat
+  - name: Get Docker install script
+    when: not docker_stat.stat.exists
+    ansible.builtin.get_url:
+      url: https://get.docker.com
+      dest: /home/pi/get-docker.sh
+  - name: Install Docker
+    when: not docker_stat.stat.exists
+    become: true
+    register: docker_install
+    ansible.builtin.command: sh /home/pi/get-docker.sh
+
+  - name: Install docker-compose and community.docker.docker_compose dependencies
+    ansible.builtin.pip:
+      name:
+        - docker-compose
+        - docker
+        - PyYAML
+      executable: pip3
+
+  - name: Add pi user to the Docker group
+    become: true
+    ansible.builtin.user:
+      name: pi
+      groups: docker
+      append: true
+
+  # Reboot after Docker install
+  - name: Reboot after Docker install
+    become: true
+    when: docker_install.changed
+    reboot:
+      reboot_timeout: 600
